@@ -1,0 +1,3002 @@
+<!--
+    Copyright 2018 The Distill Template Authors
+
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+  -->
+<!doctype html>
+
+<head>
+  <link rel=stylesheet href="codemirror/lib/codemirror.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.11.1/dist/katex.min.css" integrity="sha384-zB1R0rpPzHqg7Kpt0Aljp8JPLqbXI3bhnPWROx27a9N0Ll6ZP/+DiW/UqRcLbRjq" crossorigin="anonymous">
+  <script src="template.v2.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.11.1/dist/katex.min.js" integrity="sha384-y23I5Q6l+B6vatafAwxRu/0oK/79VlbSz7Q9aiSZUvyWYIYsd+qj+o24G5ZU2zJz" crossorigin="anonymous"></script>
+  <script src="https://d3js.org/d3.v5.js"></script>
+  <script src="codemirror/lib/codemirror.js"></script>
+  <script src="codemirror/mode/yaml/yaml.js"></script>
+  <script src="codemirror/keymap/emacs.js"></script>
+  <script src="codemirror/addon/edit/matchbrackets.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/3.13.1/js-yaml.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/6.6.0/math.min.js"></script>
+  <script src="hand_transformer.js"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="utf8">
+
+  <style>
+    .CodeMirror { border: 1px solid #ddd; }
+    .CodeMirror-scroll { max-height: 500px; }
+    .CodeMirror pre { padding-left: 7px; line-height: 1.25; }
+  </style>
+
+</head>
+
+<body>
+  <distill-header></distill-header>
+  <d-front-matter>
+    <script id='distill-front-matter' type="text/json">
+      {
+          "title": "Programmable Transformers",
+          "description": "We can set the weights of a transformer by hand.",
+          "published": "Feb 20, 2020",
+          "authors": [
+              {
+                  "author": "Eric Purdy",
+                  "authorURL": "https://ericpurdy.com/",
+                  "affiliations": [{"name": "Rad AI"}]
+              }
+          ],
+          "katex": {
+              "delimiters": [
+                  {"left": "$$", "right": "$$", "display": false}
+              ]
+          }
+      }
+    </script>
+  </d-front-matter>
+  <d-title>
+    <h1>Programmable Transformers</h1>
+    <figure style="grid-column: page; margin: 1rem 0;"><img src="header_img.png"
+                                                            style="width:100%; border: 1px solid rgba(0, 0, 0, 0.2);" /></figure>
+    <p>We propose to hardcode the parameters of a Transformer network
+      in a new human-interpretable notation.</p>
+  </d-title>
+  <d-byline></d-byline>
+  <d-article>
+
+
+
+    <a class="marker" href="#section-1" id="section-1"><span>1</span></a>
+    <h2>Introduction</h2>
+    <p>Deep learning is very effective at creating networks that can
+      perform complex tasks, but we do not generally have much
+      idea <b>how</b> those tasks are performed by these networks.  We
+      here propose some new notation that makes it far more possible
+      to <b>hardcode</b> neural networks that can perform the same
+      sorts of tasks as their learned counterparts. This has several
+      benefits:
+      <ul>
+        <li>The resulting hardcoded networks are <b>extremely
+            interpretable</b> and may be useful for some tasks where
+          that is a requirement.
+        </li>
+        <li>The process of hardcoding a network provides valuable
+          insight into <b>what kinds of computation are
+            performable</b> with the various components of a particular
+          architecture.
+        </li>
+        <li>Hardcoding a network gives a better understanding of the
+          <b>space of possible variants</b> of a particular
+          architecture.
+        </li>
+        <li>Hardcoding neural networks for natural language processing
+          allows us to encode linguistic knowledge in a format that is
+          usable for linguistic competence, thus allowing us
+          to <b>rigorously test linguistic theories</b> and
+          potentially providing <b>a new experimental framework for
+            work in linguistics</b>.
+        </li>
+        <li>There are several ways to <b>combine hardcoded components
+            with learned components</b> to achieve some of the
+          advantages of both.
+        </li>
+      </ul>
+    </p>
+
+    <p>
+      Our goal in this article is to successfully hardcode the weights
+      of a Transformer<d-cite key="transformer"></d-cite> in order to
+      do classification (is this sentence grammatical or not?) and
+      translation (English to French). We present these networks
+      piece-by-piece with editable code blocks so that the reader can
+      follow along.  While we intend to make this article
+      self-contained, readers may find it helpful to consult the
+      Illustrated
+      Transformer<d-cite key="illustrated-transformer"></d-cite> and
+      the Annotated
+      Transformer<d-cite key="annotated-transformer"></d-cite> to
+      refresh their memories of how Transformer works.
+    </p>
+
+
+
+    <a class="marker" href="#section-2" id="section-2"><span>2</span></a>
+    <h2>Notation</h2>
+    <p>Our first bit of notation is for sparse vectors whose nonzero
+      entries are small numbers. We first pick an ordered set of
+      natural language words (e.g., English words), one per dimension
+      of our vector space. We will call these
+      words <b>semes</b>.<d-footnote>The term comes from semiotics,
+        where it denotes the smallest piece of semantic
+        meaning.</d-footnote> Each seme represents a different basis
+      vector. We then represent vectors as sums of these basis
+      vectors. If our semes are "pig", "peregrine", and "wombat", we
+      would represent the vector $$\langle 1, 0, -1\rangle$$ as
+      $$\langle \langle +pig - wombat \rangle \rangle$$, while the
+      vector $$\langle -2.1, 3.3, 0\rangle$$ would be represented as
+      $$\langle\langle -2.1 pig + 3.3 peregrine \rangle \rangle$$.
+    </p>
+    <p>When writing code, we omit the $$\langle\langle\, \rangle\rangle$$:
+      <d-code block="" language="markdown">
+        vec1: +pig -wombat
+        vec2: -2.1pig +3.3peregrine
+      </d-code>
+    </p>
+    <p>The next bit of notation is for sparse matrices whose nonzero
+      entries are small numbers. We represent the $$i,j$$ entry of a
+      matrix being $$x\ne 0$$ by $$\{\{ x \, seme_i \rightarrow
+      seme_j\}\}$$. If our three semes are again "pig",
+      "peregrine", and "wombat", then we have
+      <d-math block>
+        \begin{bmatrix} 1 & 0 & 0 \\ 0 & 2 & 3\\ 0 & 0 & 4 \end{bmatrix}
+        = \{\{ pig\rightarrow pig,
+        2 peregrine\rightarrow peregrine,
+        3 peregrine \rightarrow wombat,
+        4 wombat\rightarrow wombat\}\}
+      </d-math>
+      <d-math block>
+        \begin{bmatrix} 0 & 0 & 3 \\ -1 & 2 & -4\\ 0 & 0 & 0
+        \end{bmatrix} = \{\{ 3pig\rightarrow wombat,
+        -peregrine\rightarrow pig, 2peregrine
+        \rightarrow peregrine, -4peregrine \rightarrow
+        wombat\}\}
+      </d-math>
+      and so on.
+    </p>
+    <p>When writing code, we omit the $$\{\{ \}\}$$ and use $$>$$ in
+      place of $$\rightarrow$$:
+      <d-code block="" language="markdown">
+        mat1: pig>pig, 2peregrine>peregrine, 3peregrine>wombat,
+        4wombat>wombat
+        mat2: 3pig>wombat, -peregrine>pig, 2peregrine>peregrine,
+        -4peregrine>wombat
+      </d-code>
+    </p>
+
+
+
+    <a class="marker" href="#section-3" id="section-3"><span>3</span></a>
+    <h2>Discussion</h2>
+
+
+
+    <a class="marker" href="#section-3.1" id="section-3.1"><span>3.1</span></a>
+    <h2>Interpretability</h2>
+
+    <p>It is generally accepted that deep neural networks are
+      uninterpretable. We show in this article that they can be made
+      quite interpretable by using better notation, with no or very
+      little change to the architecture. Unfortunately, building a
+      network that is able to perform a nontrivial task is quite
+      complex and requires either a lot of preliminaries or intimate
+      familiarity with the architectures in question; we will
+      gradually build up to such networks. To whet the reader&apos;s
+      appetite, we show here a simple (vanilla) RNN designed to do
+      sentiment analysis, based on the VADER
+      algorithm.<d-cite key="vader"></d-cite> (VADER itself is already
+      extremely interpretable; this is only meant to demonstrate that
+      a fairly simple vanilla RNN can be made just as interpretable.)
+    </p>
+
+    <p>
+      The following figure can be edited interactively. We have
+      provided a bare minimum set of word embeddings (below called
+      "lexicon"), so adding additional examples will probably require
+      adding additional items to the lexicon.
+    </p>
+
+    <aside>Any shortcomings of the network below should not be taken
+      to reflect on the VADER algorithm, of which this network is only
+      a crude sketch.
+    </aside>
+
+    <d-figure id="figure-vader" style="border: 1px solid black">
+      <svg id="figure-vader-svg" width="500" height="200" />
+    </d-figure>
+    <script>
+      const figureVader = document.querySelector(
+          "d-figure#figure-vader");
+      const initTagVader = document.createElement("div");
+      figureVader.appendChild(initTagVader);
+
+      let layer = null;
+
+      figureVader.addEventListener("ready", function () {
+          const initTagVader = figureVader.querySelector("div");
+          layer = new HandRnn(
+              {program: `
+semes: stop positive negative negation contrastive intensifier
+       lessener intensepunctuation
+       xa xb xc xd xe ya yb yc yd ye
+
+lexicon:
+    ",": stop
+    ".": stop
+    "I'll": stop
+    At: stop
+    It: stop
+    The: stop
+    Today: stop
+    VADER: stop
+    a: stop
+    all: stop
+    and: stop
+    are: stop
+    at: stop
+    book: stop
+    by: stop
+    characters: stop
+    dialog: stop
+    get: stop
+    is: stop
+    it: stop
+    of: stop
+    plot: stop
+    the: stop
+    was: stop
+    FUNNY: positive
+    GOOD: positive
+    GREAT: positive
+    HANDSOME: positive
+    LOL: positive
+    SMART: positive
+    funny: positive
+    good: positive
+    great: positive
+    handsome: positive
+    lol: positive
+    smart: positive
+    SUX: negative
+    bad: negative
+    horrible: negative
+    sux: negative
+    uncompelling: negative
+    "!": intensepunctuation
+    "!!!": intensepunctuation
+    very: intensifier
+    VERY: intensifier
+    uber: intensifier
+    FRIGGIN: intensifier
+    only: lessener
+    kinda: lessener
+    not: negation
+    nor: stop
+    isnt: negation
+    Not: negation
+    But: contrastive
+    but: contrastive
+
+# H^0_t = I_t
+# H^l_0 = 0
+# H^l_t = sigmoid[(I + A^l) H^{l-1}_t + B^l H^l_{t-1} + bias^l]
+# X^0 = mean_t H^2_t
+# X^1 = sigmoid(C^1 X^0 + c^l)
+
+rnn_layer1:
+    A: positive>xa negative>ya positive>xb negative>yb
+       negation>negation intensifier>intensifier lessener>lessener
+
+    B: intensifier>xa intensifier>ya lessener>xb lessener>yb
+       negation>negation 0.5intensifier>intensifier 0.5lessener>lessener
+
+    bias: -xa -xb -ya -yb
+
+rnn_layer2:
+    A: xa>xc ya>yc xb>xd yb>yd negation>xc negation>xd negation>yc
+       negation>yd positive>xe negation>xe negative>ye negation>ye
+
+    B: ''
+
+    bias: -xc -xd -yc -yd -xe -ye
+
+dense1:
+    C: positive>positive negative>negative 2xa>positive 0.25xb>positive
+       ya>negative 0.25yb>negative xc>negative xd>negative yc>positive
+       yd>positive -2xc>positive -2xd>positive -2yc>negative
+       -2yd>negative xe>negative ye>positive -xe>positive -ye>negative
+    c: ''
+
+
+examples:  # examples modified from https://github.com/cjhutto/vaderSentiment
+    - VADER is smart , handsome , and funny .
+    - VADER is smart , handsome , and funny !
+    - VADER is very smart , handsome , and funny .
+    - VADER is VERY SMART , handsome , and FUNNY .
+    - VADER is VERY SMART , handsome , and FUNNY !!!
+    - VADER is VERY SMART , uber handsome , and FRIGGIN FUNNY !!!
+    - VADER is not smart , handsome , nor funny .
+    - The book was good .
+    - It isnt a horrible book .
+    - The book was only kinda good .
+    - The plot was good , but the characters are uncompelling and the dialog is not great .
+    - Today SUX !
+    - Today only kinda sux ! But I'll get by , lol
+    - Not bad at all
+`,
+               id: 'figure-vader',
+               topLevel: true,
+               document: document,
+               container: initTagVader});
+      });
+
+    </script>
+
+
+
+    <a class="marker" href="#section-3.2" id="section-3.2"><span>3.2</span></a>
+    <h2>As a Tool to Build Intuition</h2>
+
+    <p>The process of hardcoding a network provides valuable insight
+       into what kinds of computation are performable at all with the
+       various components of a particular architecture, as well as
+       what kinds of computation are natural (and thus likely easy to
+       learn) and which kinds are unnatural (and thus at least
+       potentially more difficult to learn). For an example, consider
+       the first layer of a Transformer decoder. This layer takes in
+       an embedding of the previously emitted word and performs
+       various manipulations on it. However, there is a residual
+       connection, so that the manipulations simply add things to the
+       embedding of the previous word. This makes it somewhat
+       difficult to erase the previous word&apos;s embedding, which is
+       necessary to avoid simply repeating the previous word ad
+       infinitum. This is relatively easy to address with a
+       self-attention layer, but it suggests that a Transformer
+       network would likely be well-served by adding a pointwise dense
+       layer (without a residual connection) between the embedding of
+       the previous word and the first decoder layer. It also suggests
+       an explanation for the repetitiveness of Transformer networks
+       in early training: the network has not yet learned to erase the
+       embedding of the previous word sufficiently well. Hopefully
+       further explanation will yield many more such insights and
+       interventions.
+    </p>
+
+    <a class="marker" href="#section-3.3" id="section-3.3"><span>3.3</span></a>
+    <h2>Usefulness for Linguistics</h2>
+
+    <p>Hardcoding neural networks for natural language processing
+       allows us to encode linguistic knowledge in a format that is
+       usable for linguistic competence (e.g., grammaticality
+       judgments, entailment judgments, translation, dialogue), thus
+       allowing us to rigorously test the sufficiency of a linguistic
+       theory for explaining a particular phenomenon. Such work is not
+       in any sense new in linguistics (see
+       e.g. <d-cite key="openccg"></d-cite>), but we hope that
+       high-performing architectures from machine learning such as the
+       Transformer add a valuable tool now that we can write
+       interpretable transformers.
+    </p>
+
+    <a class="marker" href="#section-3.4" id="section-3.4"><span>3.4</span></a>
+    <h2>Combining Learning with Programming</h2>
+    <p>There are several ways to combine hardcoded components with
+       learned components to achieve some of the advantages of
+      both. We list several ideas in this vein:
+      <ul>
+        <li>Initializing a Transformer network from a hand-built set
+          of weights, then learning from data on top of this. We can
+          definitely create initializations that are far stronger than
+          any random initialization. Note that hand-built networks
+          tend to have symmetries resulting from their sparse weights,
+          so the weights should have noise added to them to break this
+          symmetry.
+        </li>
+        <li>Writing weight matrices as sums of word embedding outer
+          products, and then learning only the word embeddings. For
+          instance, we can interpret $$\{\{red\rightarrow blue\}\}$$
+          as the outer product of the word embedding for "red" and the
+          word embedding for "blue". This would allow us to use
+          traditional learned word embeddings while still retaining a
+          large amount of insight into the internal workings of the
+          network. It might also allow us to encode certain semantic
+          relationships solely by enumerating examples of the semantic
+          relationship. For example, $$\{\{eat\rightarrow animal,
+          drink\rightarrow animal, sleep\rightarrow animal,
+          see\rightarrow animal\}\}$$ might encode that a subject that
+          eats, drinks, sleeps, or sees is probably an animal. Given
+          appropriate word embeddings, this might then generalize to
+          such activities as hearing, snoozing, sipping, or chewing.
+        </li>
+        <li>Initializing a Transformer network from hand-built
+          weights, then doing some number of steps of gradient descent
+          to get <b>proposed new rules</b> to add to the existing
+          weight specification rules.
+        </li>
+      </ul>
+    </p>
+
+
+
+    <a class="marker" href="#section-4" id="section-4"><span>4</span></a>
+    <h2>Ingredients of Transformer Networks</h2>
+
+    <p>In this section, we lay out the workings of a Transformer
+      piece-by-piece, indicating how each can be programmed. In the
+      next section, we will actually build a network that classifies
+      sentences as grammatical or not.
+    </p>
+
+
+
+    <a class="marker" href="#section-4.1" id="section-4.1"><span>4.1</span></a>
+    <h2>Pointwise Dense Layers</h2>
+    <p>As the next step, we will consider a pointwise dense layer,
+      which requires one matrix parameter (the weights) and one vector
+      parameter (the biases). Pointwise dense layers are used to
+      compute the inputs to dot-product attention, as well as in the
+      feed-forward layers of the Transformer.
+    </p>
+    <p>As a basic example, consider semes
+      $$apple,banana,cherry,durian$$. Consider the dense layer with
+      weights $$\{\{apple\rightarrow apple, -apple\rightarrow banana,
+      -apple \rightarrow cherry, -banana \rightarrow apple,$$ $$banana
+      \rightarrow banana, -banana \rightarrow cherry, -cherry
+      \rightarrow apple, -cherry \rightarrow banana,$$ $$cherry
+      \rightarrow cherry\}\}$$ and bias $$\langle\langle
+      -durian\rangle\rangle$$. The following figure allows you to change
+      both the parameters of the dense layer and the vectors that get
+      run through it.
+    </p>
+
+    <d-figure id="figure-pointwise" style="border: 1px solid black">
+      <svg id="figure-pointwise-svg" width="500" height="200" />
+    </d-figure>
+    <script>
+      const figurePointwise = document.querySelector(
+          "d-figure#figure-pointwise");
+      const initTagPointwise = document.createElement("div");
+      figurePointwise.appendChild(initTagPointwise);
+
+      figurePointwise.addEventListener("ready", function () {
+          const initTagPointwise = figurePointwise.querySelector("div");
+          let layer = new HandDense(
+              {program: `semes: apple banana cherry durian
+mat: apple>apple, -apple>banana, -apple>cherry, -banana>apple,
+     banana>banana, -banana>cherry, -cherry>apple, -cherry>banana,
+     cherry>cherry
+bias: -durian
+examples:
+    - ''
+    - +apple
+    - +banana
+    - +cherry
+    - +apple +banana
+    - +apple -banana
+    - +banana +cherry
+    - +banana -cherry
+    - +apple +cherry
+    - -apple +cherry
+    - +apple +banana +cherry
+    - +apple +banana +cherry +durian
+`,
+               id: 'figure-pointwise',
+               topLevel: true,
+               document: document,
+               container: initTagPointwise});
+      });
+
+    </script>
+
+
+
+    <a class="marker" href="#section-4.2" id="section-4.2"><span>4.2</span></a>
+    <h2>Word Embeddings</h2>
+    <p>
+      Our ultimate goal is to write down all the weights for a
+      Transformer model that can perform a natural language task. We
+      next discuss word embeddings. For simplicity, we omit the
+      intermediate step of associating each word to an integer
+      identifier, and simply map each word directly to a vector.
+    </p>
+    <table>
+      <thead>
+        <tr>
+          <th>Word</th>
+          <th>Embedding</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>I</td>
+          <td>$$\langle\langle +nom +sg +first +pro\rangle\rangle$$</td>
+        </tr>
+        <tr>
+          <td>you</td>
+          <td>$$\langle\langle +nom +sg +second +pro\rangle\rangle$$</td>
+        </tr>
+        <tr>
+          <td>he</td>
+          <td>$$\langle\langle +masc +nom +sg +third +pro\rangle\rangle$$</td>
+        </tr>
+        <tr>
+          <td>she</td>
+          <td>$$\langle\langle +fem +nom +sg +third +pro\rangle\rangle$$</td>
+        </tr>
+        <tr>
+          <td>it</td>
+          <td>$$\langle\langle +neut +sg +third +pro +expletive\rangle\rangle$$</td>
+        </tr>
+        <tr>
+          <td>me</td>
+          <td>$$\langle\langle +acc +sg +first +pro\rangle\rangle$$</td>
+        </tr>
+        <tr>
+          <td>you</td>
+          <td>$$\langle\langle +sg +pl +second +pro\rangle\rangle$$</td>
+        </tr>
+        <tr>
+          <td>him</td>
+          <td>$$\langle\langle +masc +acc +sg +third +pro\rangle\rangle$$</td>
+        </tr>
+        <tr>
+          <td>her</td>
+          <td>$$\langle\langle +fem +acc +sg +third +pro\rangle\rangle$$</td>
+        </tr>
+        <tr>
+          <td>we</td>
+          <td>$$\langle\langle +nom +pl +first +pro\rangle\rangle$$</td>
+        </tr>
+        <tr>
+          <td>they</td>
+          <td>$$\langle\langle +nom +pl +third +pro\rangle\rangle$$</td>
+        </tr>
+        <tr>
+          <td>us</td>
+          <td>$$\langle\langle +acc +pl +first +pro\rangle\rangle$$</td>
+        </tr>
+        <tr>
+          <td>them</td>
+          <td>$$\langle\langle +acc +pl +third +pro\rangle\rangle$$</td>
+        </tr>
+        <tr>
+          <td>my</td>
+          <td>$$\langle\langle +gen +sg +first +pro\rangle\rangle$$</td>
+        </tr>
+        <tr>
+          <td>our</td>
+          <td>$$\langle\langle +gen +pl +first +pro\rangle\rangle$$</td>
+        </tr>
+        <tr>
+          <td>his</td>
+          <td>$$\langle\langle +masc +gen +sg +third +pro\rangle\rangle$$</td>
+        </tr>
+        <tr>
+          <td>her</td>
+          <td>$$\langle\langle +fem +gen +acc +sg +third +pro\rangle\rangle$$</td>
+        </tr>
+        <tr>
+          <td>its</td>
+          <td>$$\langle\langle +neut +gen +sg +third +pro\rangle\rangle$$</td>
+        </tr>
+        <tr>
+          <td>their</td>
+          <td>$$\langle\langle +gen +pl +third +pro\rangle\rangle$$</td>
+        </tr>
+        <tr>
+          <td>meet</td>
+          <td>$$\langle \langle+meet +verb
+            +plain +agentlack
+            +patientlack\rangle\rangle$$</td>
+        </tr>
+        <tr>
+          <td>meets</td>
+          <td>$$\langle \langle +meet +verb
+            +thirdsg +agentlack
+            +patientlack \rangle\rangle $$</td>
+        </tr>
+        <tr>
+          <td>met</td>
+          <td>$$\langle\langle +meet +verb
+            +preterite +agentlack
+            +patientlack\rangle\rangle$$</td>
+        </tr>
+        <tr>
+          <td>pig</td>
+          <td>$$\langle\langle +pig +noun +sg\rangle\rangle$$</td>
+        <tr>
+          <td>pigs</td>
+          <td>$$\langle\langle +pig +noun +pl\rangle\rangle$$</td>
+        </tr>
+
+      </tbody>
+    </table>
+    <p>
+      There are several things to note in these word embeddings.
+      Firstly, a "content" word like "meet" or "pig" will generally
+      have either itself or some other form of itself as one of its
+      components<d-footnote>This happens primarily because we do not
+        know of any completely interpretable encoding of semantic
+        meanings, and we need some notion of semantics in order to
+        perform some tasks, e.g. translation. Pretrained word embeddings
+        are at least somewhat interpretable. We will revisit this point
+        later when we talk about hybrid hand/learned
+        approaches. </d-footnote>, while pronouns are fully specifiable
+      in terms of various axes having to do with classic grammatical
+      notions like case, gender, person, number, and so on. Secondly,
+      content words come with a few extra <b>syntactic</b> components
+      describing how the particular form of the word expresses
+      grammatical notions like person (for verbs) and number (for both
+      verbs and nouns). For instance, "pig" is singular
+      $$\langle\langle +sg\rangle\rangle$$, while "pigs" is plural
+      $$\langle\langle +pl \rangle\rangle$$.
+    </p>
+    <p>We describe the intended use of some the semes we use here:
+    </p>
+    <table>
+      <tr>
+        <th>Type</th>
+        <th>Seme</th>
+        <th>Meaning</th>
+        <th>Example</th>
+      </tr>
+      <tr>
+        <td style="vertical-align: top">Weirdness</td>
+        <td>$$weird$$</td>
+        <td>Some linguistic expectation has been violated</td>
+        <td>I are</td>
+      </tr>
+      <tr>
+        <td rowspan="2" style="vertical-align: top">Number</td>
+        <td>$$sg$$</td>
+        <td>Singular</td>
+        <td>dog</td>
+      </tr>
+      <tr>
+        <td>$$pl$$</td>
+        <td>Plural</td>
+        <td>dogs</td>
+      </tr>
+      <tr>
+        <td rowspan="3" style="vertical-align: top">Case</td>
+        <td>$$nom$$</td>
+        <td>Nominative case</td>
+        <td>I/they/she/he</td>
+      </tr>
+      <tr>
+        <td>$$acc$$</td>
+        <td>Accusative case</td>
+        <td>me/them/her/him</td>
+      </tr>
+      <tr>
+        <td>$$gen$$</td>
+        <td>Genitive case</td>
+        <td>my/their/her/his</td>
+      </tr>
+      <tr>
+        <td rowspan="3" style="vertical-align: top">Person</td>
+        <td>$$first$$</td>
+        <td>first person</td>
+        <td>I/me/mine/myself</td>
+      </tr>
+      <tr>
+        <td>$$second$$</td>
+        <td>second person</td>
+        <td>you/your/yourself</td>
+      </tr>
+      <tr>
+        <td>$$third$$</td>
+        <td>third person</td>
+        <td>she/her/he/him/his/they/them/their</td>
+      </tr>
+      <tr>
+        <td rowspan="3" style="vertical-align: top">Role</td>
+        <td>$$agent$$</td>
+        <td>One who performs an action</td>
+        <td><b>She</b> threw the ball</td>
+      </tr>
+      <tr>
+        <td>$$experiencer$$</td>
+        <td>One who experiences some perception</td>
+        <td><b>He</b> saw a dog</td>
+      </tr>
+      <tr>
+        <td>$$percept$$</td>
+        <td>Something that is perceived</td>
+        <td>He saw a <b>dog</b></td>
+      </tr>
+      <tr>
+        <td rowspan="3" style="vertical-align: top">Role Requirement</td>
+        <td>$$agentlack$$</td>
+        <td>Used for verbs that require an agent</td>
+        <td>She <b>threw</b> the ball</td>
+      </tr>
+      <tr>
+        <td>$$experiencerlack$$</td>
+        <td>Used for verbs that require an experiencer</td>
+        <td>He <b>saw</b> a dog</td>
+      </tr>
+      <tr>
+        <td>$$perceptposs$$</td>
+        <td>Used for verbs that can take but do not require a
+          percept</td>
+        <td>He <b>saw</b> a dog / He <b>saw</b></td>
+      </tr>
+    </table>
+
+
+
+    <a class="marker" href="#section-4.3" id="section-4.3"><span>4.3</span></a>
+    <h2>Transformer Feed-Forward Layers</h2>
+    <p>Next we consider the feed-forward layers of Transformer. These
+      are typically two dense layers with a ReLU nonlinearity between
+      them. The intermediate dimension (referred to as the "filter
+      size") is usually larger (typically by a factor of four) than the
+      hidden size of the network.
+    </p>
+
+    <p>One of the primary uses we have found for the Transformer
+    feed-forward layer is to allow us to reason about logical
+    conjunctions ($$a$$ AND $$b$$) and logical disjunctions ($$a$$ OR
+    $$b$$). A single dense layer does not have the representational
+    capacity to represent either of these notions in a satisfactory
+    manner. In a Transformer feed-forward layer, we can represent
+    $$a$$ AND $$b$$ as $$f_{a\, \mathrm{AND}\, b}(v) =
+    \mathrm{ReLU}(v\cdot \{\{a\rightarrow x, b\rightarrow x\}\} -
+    \langle\langle x \rangle\rangle)$$. Here we can read the value of
+    $$a$$ AND $$b$$ out from the coefficient of $$x$$ in
+    $$f(v)$$. Similarly we can represent $$a$$ OR $$b$$ as $$f_{a\,
+    \mathrm{OR}\, b}(v) =v\cdot \{\{ +a\rightarrow x, +b\rightarrow
+    x\}\} - f_{a\, \mathrm{AND}\, b}(v)$$ $$=v \cdot \{\{
+    +a\rightarrow x, +b\rightarrow x\}\} -\mathrm{ReLU}(v\cdot
+    \{\{a\rightarrow x, b\rightarrow x\}\} - \langle\langle x
+    \rangle\rangle)$$.  We now present editable code. The provided
+    code maps $$apple$$ OR $$banana$$ to $$yum$$ and $$cherry$$ AND
+    $$durian$$ to $$yuck$$.<d-footnote>No offense to lovers of either
+    fruit.</d-footnote> As a challenge, consider how you would
+    represent $$apple$$ OR $$banana$$ OR $$cherry$$. (You may find
+    you need auxilliary semes!)
+    </p>
+
+
+    <d-figure id="figure-feedforward" style="border: 1px solid black">
+      <svg id="figure-feedforward-svg" width="500" height="200" />
+    </d-figure>
+    <script>
+      const figureFeedForward = document.querySelector(
+          "d-figure#figure-feedforward");
+      const initTagFeedForward = document.createElement("div");
+      figureFeedForward.appendChild(initTagFeedForward);
+
+      figureFeedForward.addEventListener("ready", function () {
+          const initTagFeedForward = figureFeedForward.querySelector("div");
+          let layer = new HandFeedForward(
+              {program: `semes: apple banana cherry durian yum yuck
+mat1: apple>apple apple>yum banana>banana banana>yum cherry>yuck durian>yuck
+bias1: -yum -yuck
+mat2: apple>yum banana>yum -yum>yum yuck>yuck
+bias2: ''
+examples:
+    - +apple
+    - +banana
+    - +cherry
+    - +durian
+    - +apple +banana
+    - +banana +cherry
+    - +apple +cherry
+    - +apple +banana +cherry
+    - +apple +durian
+    - +banana +durian
+    - +cherry +durian
+    - +apple +banana +durian
+    - +banana +cherry +durian
+    - +apple +cherry +durian
+    - +apple +banana +cherry +durian
+`,
+               id: "figure-feedforward",
+               topLevel: true,
+               document: document,
+               container: initTagFeedForward});
+      });
+
+    </script>
+
+
+
+    <a class="marker" href="#section-4.4" id="section-4.4"><span>4.4</span></a>
+    <h2>Transformer Attention Layers</h2>
+    <p>Finally, we come to the most iconic layer of the Transformer,
+      the attention layer. This layer is the only layer in which the
+      representations of different words interact.
+    </p>
+    <p>For now, we deal only with a single attention head for
+      simplicity. Later, we will consider multi-head attention. For
+      the time being, we are not using positional embeddings, which
+      greatly restricts the ability of the network to associate nouns
+      with the correct modifiers (and you will see such errors in the
+      output of the next figure). We will address this shortcoming
+      later, once we have some slightly better notation.
+    </p>
+
+    <d-figure id="figure-attention" style="border: 1px solid black">
+      <svg id="figure-attention-svg" width="500" height="200" />
+    </d-figure>
+    <script>
+      const figureAttention = document.querySelector(
+          "d-figure#figure-attention");
+      const initTagAttention = document.createElement("div");
+      figureAttention.appendChild(initTagAttention);
+
+      figureAttention.addEventListener("ready", function () {
+          const initTagAttention = figureAttention.querySelector("div");
+          let layer = new HandSelfAttention(
+              {program: `semes: red green blue apple banana cherry durian
+       det adjective noun conjunction xa
+keymat: 10adjective>xa 10det>det 10conjunction>conjunction 10det>adjective
+querymat: 10noun>xa 10det>det 10conjunction>conjunction 10adjective>adjective
+valuemat: red>red green>green blue>blue
+examples:
+    - # apple gets red
+      - a: +det
+      - red: +adjective +red
+      - apple: +noun +apple
+    - # banana gets green
+      - a: +det
+      - green: +adjective +green
+      - banana: +noun +banana
+    - # cherry gets blue
+      - a: +det
+      - blue: +adjective +blue
+      - cherry: +noun +cherry
+    - # both nouns get both colors, which is incorrect
+      - a: +det
+      - red: +adjective +red
+      - cherry: +noun +cherry
+      - and: +conjunction
+      - a: +det
+      - blue: +adjective +blue
+      - durian: +noun +durian
+`,
+               id: "figure-attention",
+               topLevel: true,
+               document: document,
+               container: initTagAttention});
+      });
+
+    </script>
+
+
+
+    <a class="marker" href="#section-4.5" id="section-4.5"><span>4.5</span></a>
+    <h2>Positional Encoding, Explained</h2>
+
+    <p>Here we explain the positional encoding of Transformer. The
+      positional encoding is made of of sines and cosines of different
+      frequencies. It turns out that this makes the embedding a
+      concatenation of a bunch of clock hands. This interpretation is
+      shown in the figure below. There are 7 clocks in the figure
+      below, one for each of the frequencies we are considering. Click
+      on any of the words (or their corresponding number) to see the
+      positional embedding corresponding to that word. Each word
+      receives the positional embedding that is the 14-dimensional
+      concatenation of the seven clock hands described as vectors.
+    </p>
+    
+    <d-figure id="figure-positional" style="border: 1px solid black">
+      <svg id="figure-positional-svg" width="500" height="200" />
+    </d-figure>
+    <script>
+      const figurePositional = document.querySelector(
+          "d-figure#figure-positional");
+      const initTagPositional = document.createElement("div");
+      figurePositional.appendChild(initTagPositional);
+
+      figurePositional.addEventListener("ready", function () {
+          const initTagPositonal = figurePositional.querySelector("div");
+          let animation = positionalAnimation(initTagPositonal);
+      });
+
+    </script>
+
+    <p>Why is this useful? It allows us to write weights that interact
+      with the positional embeddings (which is necessary to make
+      position-dependent inferences) without losing interpretability.
+      We do this as follows: first, we note that we can identify
+      rotation matrices that move each of the clock-hands forward by
+      the same amount that moving forward one word will move them. We
+      express this like so:
+      <d-code block="" language="markdown">
+        querypos: +0
+        keypos: +1
+      </d-code>
+      Here every word will pay attention to the word before it, because
+      the key is being advanced one word while the query is not. We
+      will put this positional embedding to use in the next section.
+    </p>
+
+
+    <a class="marker" href="#section-4.6" id="section-4.6"><span>4.6</span></a>
+    <h2>Transformer Attention Layers with Positional Encoding</h2>
+
+    <p>Here we demonstrate the use of the positional embedding in a
+    self-attention layer by fixing the example from Section 4.4 to
+    associate the correct noun with the correct adjective.
+    </p>
+    
+    <d-figure id="figure-posattention" style="border: 1px solid black">
+      <svg id="figure-posattention-svg" width="500" height="200" />
+    </d-figure>
+    <script>
+      const figurePosAttention = document.querySelector(
+          "d-figure#figure-posattention");
+      const initTagPosAttention = document.createElement("div");
+      figurePosAttention.appendChild(initTagPosAttention);
+
+      figurePosAttention.addEventListener("ready", function () {
+          const initTagPosAttention = figurePosAttention.querySelector("div");
+          let layer = new HandSelfAttention(
+              {program: `semes: red green blue apple banana cherry durian
+       det adjective noun conjunction xa Ax Ay Bx By Cx Cy
+clocks: 0.1A 0.2B 0.3C # in radians per token
+keypos: +1
+querypos: 0
+keymat: 10adjective>xa 10det>det 10conjunction>conjunction 10det>adjective
+querymat: 10noun>xa 10det>det 10conjunction>conjunction 10adjective>adjective
+valuemat: red>red green>green blue>blue
+examples:
+    - # apple gets red
+      - a: +det
+      - red: +adjective +red
+      - apple: +noun +apple
+    - # banana gets green
+      - a: +det
+      - green: +adjective +green
+      - banana: +noun +banana
+    - # cherry gets blue
+      - a: +det
+      - blue: +adjective +blue
+      - cherry: +noun +cherry
+    - # both nouns get both colors, which is incorrect
+      - a: +det
+      - red: +adjective +red
+      - cherry: +noun +cherry
+      - and: +conjunction
+      - a: +det
+      - blue: +adjective +blue
+      - durian: +noun +durian
+`,
+               id: "figure-posattention",
+               topLevel: true,
+               document: document,
+               container: initTagPosAttention});
+      });
+
+    </script>
+    
+
+
+    <a class="marker" href="#section-5" id="section-5"><span>5</span></a>
+    <h2>Classification Transformer for Grammaticality</h2>
+
+    <p>
+      In this section, we show a Transformer programmed to make
+      grammaticality judgments in English. This example is still in
+      the process of being translated from one description language to
+      another, and should not be expected to work. The full network
+      that worked on a decent number of examples is shown as a comment
+      in the code below.
+    </p>
+
+    <d-figure id="figure-grammaticality" style="border: 1px solid black">
+      <svg id="figure-grammaticality-svg" width="500" height="200" />
+    </d-figure>
+    <script>
+      const figureGrammaticality = document.querySelector(
+          "d-figure#figure-grammaticality");
+      const initTagGrammaticality = document.createElement("div");
+      figureGrammaticality.appendChild(initTagGrammaticality);
+
+      figureGrammaticality.addEventListener("ready", function () {
+          const initTagGrammaticality = figureGrammaticality.querySelector("div");
+          let layer = new HandTransformer(
+              {program: `# English Grammaticality Classifier
+semes: weird unknownword
+
+    sos eos
+
+    period comma qmark emark colon semicolon squote dquote dash lparen
+    rparen interrobang
+
+    filler licensed reflic
+
+    early late
+
+    lastname name
+
+    subject mainverb dirobject indirobject
+    tense complementizer
+
+    pro det noun verb copula adjective adverb prep particle conj
+    helper modal sat num expletive
+
+    preterite plain imperative thirdsg infinitive pastpart ing
+
+    wh neg to sg pl massnoun nom acc gen masc fem neut first second
+    third reflexive reflexivelack possessive cognate
+
+    sgcheck plcheck checked
+
+    preverb postverb
+
+    nplack
+
+    agent experiencer theme patient source goal location recipient
+    instrument benefactive percept complement predicate
+
+    agentlack themelack experiencerlack perceptlack complementlack
+    goallack benefactivelack itlack patientlack speechlack
+
+    agentposs themeposs experiencerposs perceptposs complementposs
+    goalposs benefactiveposs patientposs speechposs
+
+    at in with
+
+    may have will shall can must ought need dare
+
+    be do go
+
+    up down very
+
+    who what when where why how which whither
+
+    here there
+
+    xa xb xc xd xe xf xg xh xi xj xk xl xm xn xo xp xq xr xs xt xu xv
+    xw xx xy xz
+
+    Ax Ay Bx By Cx Cy Dx Dy Ex Ey
+
+encoder_lexicon:
+    .: +period
+    ',': +comma
+    '!': +emark
+    '?': +qmark
+    "'s": +possessive +be +verb +thirdsg +copula +acc +pl +first +pro
+
+    'yes': +expletive
+
+    I: +nom +sg +first +pro
+    i: +nom +sg +first +pro
+    you: +nom +sg +pl +second +pro
+    he: +masc +nom +sg +third +pro
+    she: +fem +nom +sg +third +pro
+    it: +neut +sg +third +pro +expletive
+    me: +acc +sg +first +pro
+    him: +masc +acc +sg +third +pro
+    her: +fem +gen +acc +sg +third +pro
+    we: +nom +pl +first +pro
+    they: +nom +pl +third +pro
+    us: +acc +pl +first +pro
+    them: +acc +pl +third +pro
+    my: +gen +sg +first +pro
+    our: +gen +pl +first +pro
+    his: +masc +gen +sg +third +pro
+    its: +neut +gen +sg +third +pro
+    their: +gen +pl +third +pro
+
+    so: +pro +nom +sg
+
+    myself: +first +reflexive +sg +pro
+    ourselves: +first +reflexive +pl +pro
+    yourself: +second +reflexive +sg +pro
+    yourselves: +second +reflexive +pl +pro
+    himself: +third +reflexive +sg +masc +pro
+    herself: +third +reflexive +sg +fem +pro
+    itself: +third +reflexive +sg +neut +pro
+    themselves: +third +reflexive +pl +pro
+    oneself: +third +reflexive +sg +pro
+
+    a: +det +sg
+    an: +det +sg
+    the: +det
+    this: +det
+    that: +det
+
+    who: +who +wh +noun +human +det
+    what: +what +wh +noun +det
+    when: +when +wh
+    where: +where +wh
+    why: +why +wh
+    how: +how +wh
+    which: +which +wh +det
+    whither: +whither +wh
+    wherefore: +why +wh
+
+    here: +here +adverb
+    there: +there +adverb +expletive
+
+    not: +neg
+
+    at: +at +prep +nplack
+    down: +adverb +down +prep
+    in: +in +prep
+    to: +to +prep
+    up: +adverb +up +prep
+    very: +adverb +very
+    with: +with +prep
+
+    is: +be +verb +thirdsg +copula
+    be: +be +verb +plain +copula
+    was: +be +verb +preterite +copula +helper
+
+    did: +do +helper +verb +preterite +agentlack +themeposs
+    do: +do +helper +verb +plain +agentlack +themeposs
+    does: +do +helper +verb +thirdsg +agentlack +themeposs
+    have: +have +plain +helper +verb +agentposs +themeposs
+    has: +have +thirdsg +helper +verb +agentposs +themeposs
+
+    can: +can +plain +helper +modal
+    could: +can +preterite +helper +modal
+    may: +may +plain +thirdsg +helper +modal
+    might: +may +helper +modal
+    must: +must  +plain +helper +modal
+    shall: +shall +plain +helper +modal
+    should: +shall +preterite +helper +modal
+    will: +will +plain +thirdsg +helper +modal
+    would: +will +preterite +helper +modal
+    ought: +ought +modal +helper +modal
+    dare: +dare +modal +helper +modal
+
+    accuse: +verb +plain +agentlack +themelack
+    accused: +verb +preterite +agentlack +themelack
+    accuses: +verb +thirdsg +agentlack +themelack
+    appear: +verb +plain +agentlack +complementposs
+    appeared: +verb +preterite +agentlack +complementposs
+    appears: +verb +thirdsg +agentlack +complementposs
+    ate: +verb +preterite +agentlack +patientposs
+    beam: +verb +plain +agentlack
+    beamed: +verb +preterite +agentlack
+    beams: +verb +thirdsg +agentlack
+    bend: +verb +plain +agentlack +patientposs
+    bent: +verb +preterite +agentlack +patientposs
+    bends: +verb +thirdsg +agentlack +patientposs
+    bled: +verb +preterite +agentlack +patientposs
+    bleed: +verb +plain +agentlack +patientposs
+    bleeds: +verb +thirdsg +agentlack +patientposs
+    blew: +verb +preterite +agentlack +patientposs
+    blow: +verb +plain +agentlack +patientposs
+    blows: +verb +thirdsg +agentlack +patientposs
+    braid: +verb +plain +agentlack +patientlack
+    braided: +verb +preterite +agentlack +patientlack
+    braids: +verb +thirdsg +agentlack +patientlack
+    breathe: +verb +plain +agentlack
+    breathed: +verb +preterite +agentlack
+    breathes: +verb +thirdsg +agentlack
+    break: +verb +plain +agentlack
+    breaks: +verb +thirdsg +agentlack
+    broke: +verb +preterite +agentlack
+    brush: +verb +plain +agentlack +patientlack
+    brushed: +verb +preterite +agentlack +patientlack
+    brushes: +verb +thirdsg +agentlack +patientlack
+    carve: +verb +plain +agentlack +patientposs
+    carved: +verb +preterite +agentlack +patientposs
+    carves: +verb +thirdsg +agentlack +patientposs
+    chase: +verb +plain +agentlack +patientlack
+    chased: +verb +preterite +agentlack +patientlack
+    chases: +verb +thirdsg +agentlack +patientlack
+    chuckle: +verb +plain +agentlack
+    chuckled: +verb +preterite +agentlack
+    chuckles: +verb +thirdsg +agentlack
+    came: +verb +preterite +agentlack
+    come: +verb +plain +agentlack
+    comes: +verb +thirdsg +agentlack
+    cook: +verb +plain +agentlack +patientposs
+    cooked: +verb +preterite +agentlack +patientposs
+    cooks:  +verb +thirdsg +agentlack +patientposs
+    cough:  +verb +plain +agentlack +patientposs
+    coughed: +verb +preterite +agentlack +patientposs
+    coughs: +verb +thirdsg +agentlack +patientposs
+    cried: +verb +preterite +agentlack
+    cries: +verb +thirdsg +agentlack
+    cry: +verb +plain +agentlack
+    cut:  +verb +plain +preterite +agentlack +patientlack
+    cuts: +verb +thirdsg +agentlack +patientlack
+
+    dance: +verb +plain +agentlack +themeposs
+    danced: +verb +preterite +agentlack +themeposs
+    dances: +verb +thirdsg +agentlack +themeposs
+    depend: +verb +plain +agentlack
+    depended: +verb +preterite +agentlack
+    depends: +verb +thirdsg +agentlack
+    doze: +verb +plain +agentlack
+    dozed: +verb +preterite +agentlack
+    dozes: +verb +thirdsg +agentlack
+    eat: +verb +plain +agentlack +patientposs
+    eats: +verb +thirdsg +agentlack +patientposs
+    eaten: +verb +pastpart +agentlack +patientposs
+    exhale: +verb +plain +agentlack +patientposs
+    exhaled: +verb +preterite +agentlack +patientposs
+    exhales: +verb +thirdsg +agentlack +patientposs
+    fall: +verb +plain +agentlack
+    falls: +verb +thirdsg +agentlack
+    fear: +verb +plain +agentlack +themelack
+    feared: +verb +preterite +agentlack +themelack
+    fears: +verb +thirdsg +agentlack +themelack
+    feel: +verb +plain +agentlack +complementposs
+    feels: +verb +thirdsg +agentlack +complementposs
+    fell: +verb +preterite +agentlack
+    felt: +verb +preterite +agentlack +complementposs
+    find: +verb +plain +agentlack +themelack
+    finds: +verb +thirdsg +agentlack +themelack
+    forget: +verb +plain +agentlack +perceptposs
+    forgot: +verb +preterite +agentlack +perceptposs
+    forgets: +verb +thirdsg +agentlack +perceptposs
+    found: +verb +preterite +agentlack +themelack
+    flew:  +verb +preterite +agentlack
+    flies: +verb +thirdsg +agentlack
+    fly: +verb +plain +agentlack
+
+    gave:  +verb +preterite +agentlack +themeposs +goalposs
+    give:  +verb +plain +agentlack +themeposs +goalposs
+    gives: +verb +thirdsg +agentlack +themeposs +goalposs
+    go:  +verb +plain +agentlack
+    goes: +verb +thirdsg +agentlack
+    grunt:  +verb +plain +agentlack
+    grunted:  +verb +preterite +agentlack
+    grunts:  +verb +thirdsg +agentlack
+    hail:  +verb +plain +itlack
+    hailed:  +verb +preterite +itlack
+    hails: +verb +thirdsg +itlack
+    handed: +verb +preterite +agentlack +benefactivelack +themelack
+    hands: +verb +thirdsg +agentlack +benefactivelack +themelack
+    hit:  +verb +plain +preterite +agentlack +patientlack
+    hits: +verb +thirdsg +agentlack +patientlack
+    hunt: +verb +plain +agentlack +patientposs
+    hunted: +verb +preterite +agentlack +patientposs
+    hunting: +verb +ing +agentlack +patientposs
+    hunts:  +verb +thirdsg +agentlack +patientposs
+    inhale: +verb +plain +agentlack +patientposs
+    inhaled: +verb +preterite +agentlack +patientposs
+    inhales: +verb +thirdsg +agentlack +patientposs
+    intone: +verb +plain +agentlack +speechposs
+    intoned: +verb +preterite +agentlack +speechposs
+    intones: +verb +thirdsg +agentlack +speechposs
+
+    kick: +verb +plain +agentlack +patientlack
+    kicked: +verb +preterite +agentlack +patientlack
+    kicks: +verb +thirdsg +agentlack +patientlack
+    kill: +verb +plain +agentlack +patientlack
+    killed: +verb +preterite +agentlack +patientlack
+    kills: +verb +thirdsg +agentlack +patientlack
+    kiss: +verb +plain +agentlack +patientlack
+    kissed: +verb +preterite +agentlack +patientlack
+    kisses: +verb +thirdsg +agentlack +patientlack
+    knew: +verb +preterite +experiencerlack +themeposs
+    know: +verb +plain +experiencerlack +themeposs
+    knows: +verb +thirdsg +experiencerlack +themeposs
+    laugh: +verb +plain +agentlack +patientposs
+    laughed: +verb +preterite +agentlack +patientposs
+    laughs: +verb +thirdsg +agentlack +patientposs
+    leave:  +verb +plain +agentlack
+    leaves: +verb +thirdsg +agentlack
+    left:  +verb +preterite +agentlack
+    let:  +verb +plain +preterite +agentlack
+    like:  +verb +plain +agentlack +themelack
+    liked: +verb +preterite +agentlack +themelack
+    look:  +verb +plain +agentlack +themeposs
+    looked: +verb +preterite +agentlack +themeposs
+    looks: +verb +thirdsg +agentlack +themeposs
+    love:  +verb +plain +agentlack +themelack
+    loved: +verb +preterite +agentlack +themelack
+    loves: +verb +thirdsg +agentlack +themelack
+
+    meet:  +verb +plain +agentlack +patientlack
+    meets: +verb +thirdsg +agentlack +patientlack
+    mend:  +verb +plain +agentlack +patientlack
+    mended: +verb +preterite +agentlack +patientlack
+    mends:  +verb +thirdsg +agentlack +patientlack
+    met:  +verb +preterite +agentlack +patientlack
+    mumble: +verb +plain +agentlack
+    mumbled: +verb +preterite +agentlack
+    mumbles: +verb +thirdsg +agentlack
+    need:  +verb +plain +agentlack +themelack
+    needed: +verb +preterite +agentlack +themelack
+    needs: +verb +thirdsg +agentlack +themelack
+
+    praised: +verb +preterite +agentlack +patientlack
+    prefer: +verb +plain +experiencerlack +themelack
+    put: +verb +preterite +agentlack +themelack
+    rain: +verb +plain +itlack
+    rained: +verb +preterite +itlack
+    raining: +verb +ing +itlack
+    rains: +verb +thirdsg +itlack
+    ran: +verb +preterite +agentlack
+    rang: +verb +preterite +agentlack +patientposs
+    ring: +verb +plain +agentlack +patientposs
+    rings: +verb +thirdsg +agentlack +patientposs
+    rowed: +verb +preterite +agentlack
+    run: +verb +plain +agentlack
+    rung: +verb +pastpart +agentlack +patientposs
+
+    said: +verb +preterite +agentlack +complementlack
+    sang: +verb +preterite +agentlack +themeposs
+    sank: +verb +preterite +agentlack
+    saw: +verb +preterite +experiencerlack +perceptposs
+    see: +verb +plain +experiencerlack +perceptposs
+    send: +verb +plain +agentlack +themelack +benefactiveposs
+    sent: +verb +preterite +agentlack +themelack +benefactiveposs
+    shaved: +verb +preterite +agentlack
+    sing: +verb +plain +agentlack +themeposs
+    sink:  +verb +plain +agentlack
+    smile: +verb +plain +experiencerlack
+    smiled: +verb +preterite +experiencerlack
+    smiles: +verb +thirdsg +experiencerlack
+    sniff: +verb +plain +experiencerlack +patientposs
+    sniffed: +verb +preterite +experiencerlack +patientposs
+    sniffs: +verb +thirdsg +experiencerlack +patientposs
+    snow: +verb +plain +itlack
+    snowed: +verb +preterite +itlack
+    snows:  +verb +thirdsg +itlack
+    sung:  +verb +pastpart +agentlack +themeposs
+    sunk:  +verb +pastpart +agentlack
+    swim:  +verb +plain +agentlack
+    swims: +verb +thirdsg +agentlack
+    swam:  +verb +preterite +agentlack
+    swum:  +verb +pastpart +agentlack
+    talk:  +verb +plain +agentlack
+    talked:  +verb +preterite +agentlack
+    talks:  +verb +thirdsg +agentlack
+    tell:  +verb +plain +agentlack +complementposs
+    told:  +verb +preterite +agentlack +complementposs
+    tried: +verb +preterite +agentlack +complementposs
+    try:  +verb +plain +agentlack +complementposs
+
+    wail: +verb +plain +agentlack
+    wailed: +verb +preterite +agentlack
+    wails:  +verb +thirdsg +agentlack
+    walk:  +verb +plain +agentlack
+    walked: +verb +preterite +agentlack
+    walks:  +verb +thirdsg +agentlack
+    waltz:  +verb +plain +agentlack
+    waltzed: +verb +preterite +agentlack
+    waltzes: +verb +thirdsg +agentlack
+    wander:  +verb +plain +agentlack
+    want:  +verb +plain +agentlack +themelack
+    wash:  +verb +plain +agentlack +themelack +benefactiveposs
+    washed: +verb +preterite +agentlack +themelack +benefactiveposs
+    washes: +verb +thirdsg +agentlack +themelack +benefactiveposs
+    went:  +verb +preterite +agentlack
+    wink:  +verb +plain +agentlack +patientposs
+    winked: +verb +preterite +agentlack +patientposs
+    winks:  +verb +thirdsg +agentlack +patientposs
+    wonder: +verb +plain +agentlack +themeposs
+    wondered: +verb +preterite +agentlack +themeposs
+    wonders:  +verb +thirdsg +agentlack +themeposs
+    wore:  +verb +preterite +agentlack +themelack
+    yawn:  +verb +plain +experiencerlack
+    yawned: +verb +preterite +experiencerlack
+    yawns:  +verb +thirdsg +experiencerlack
+
+    big:  +adjective
+    black: +adjective
+    blue: +adjective
+    clever: +adjective
+    cold: +adjective
+    cool: +adjective
+    cyan: +adjective
+    edible: +adjective
+    green:  +adjective
+    honest: +adjective
+    hot: +adjective
+    magenta: +adjective
+    orange: +adjective
+    proud:  +adjective
+    purple:  +adjective
+    red:  +adjective
+    sick: +adjective
+    small: +adjective
+    warm:  +adjective
+    wearable: +adjective
+    white: +adjective
+    yellow: +adjective
+
+    apple: +noun +sg
+    apples: +noun +pl
+    bear: +noun +sg
+    bears: +noun +pl
+    bell:  +noun +sg
+    bells: +noun +pl
+    bird:  +noun +sg
+    birds: +noun +pl
+    blood: +noun +massnoun
+    boat:  +noun +sg
+    boats: +noun +pl
+    book:  +noun +sg
+    books: +noun +pl
+    bread: +noun +massnoun
+    boy:  +male +noun +sg
+    boys: +male +noun +sg
+    car:  +noun +sg
+    cars: +noun +pl
+    cat:  +noun +sg
+    cats: +noun +pl
+    child: +noun +sg
+    children: +noun +pl
+    coat: +noun +sg
+    coats: +noun +pl
+    cup:  +noun +sg
+    cups: +noun +pl
+    day:  +noun +sg
+    days: +noun +pl
+    dirt: +noun +massnoun
+    dog:  +noun +sg
+    dogs: +noun +pl
+    donut: +noun +sg
+    donuts: +noun +pl
+    door: +noun +sg
+    doors: +noun +pl
+    fence: +noun +sg
+    fences: +noun +pl
+    fool:  +noun +sg
+    fools: +noun +pl
+    fruit: +noun +massnoun
+    girl:  +female +noun +sg
+    girls: +female +noun +sg
+    horse: +noun +sg
+    horses: +noun +pl
+    human:  +noun +sg
+    humans: +noun +pl
+    lion: +noun +sg
+    lioness: +female +noun +sg
+    lions:  +noun +pl
+    man:  +male +noun +sg
+    men:  +male +noun +pl
+    money: +noun +massnoun
+    pig:  +noun +sg
+    pigs: +noun +pl
+    rod:  +noun +sg
+    rods:  +noun +pl
+    salad: +noun +sg
+    salads: +noun +pl
+    sheep:  +noun +sg +pl
+    ship:  +noun +sg
+    ships: +noun +pl
+    shirt: +noun +sg
+    shirts: +noun +pl
+    song:  +noun +sg +cognate
+    songs: +noun +pl +cognate
+    star:  +noun +sg
+    stars: +noun +pl
+    steak: +noun +sg
+    steaks: +noun +pl
+    tiger:  +noun +sg
+    tigers: +noun +pl
+    telescope: +noun +sg
+    telescopes: +noun +pl
+    sugar:  +noun +massnoun
+    woman:  +female +noun +sg
+    women:  +female +noun +pl
+
+    aaron: +male +name
+    abernathy: +lastname
+    abraham: +male +name
+    achilles: +male +name
+    adam: +male +name
+    alan: +male +name
+    alex: +male +name
+    alexandra: +female +name
+    alexis: +female +name
+    ali: +male +female +name
+    alice: +female +name
+    alina: +female +name
+    alison: +female +name
+    aliza: +female +name
+    alyssa: +female +name
+    amanda: +female +name
+    amy: +female +name
+    andrew: +male +name
+    andropov: +lastname +name
+    andy: +male +name
+    angel: +male +name
+    angela: +female +name
+    angleton: +lastname +name
+    anita: +female +name
+    ann: +female +name
+    anna: +female +name
+    annabelle: +female +name
+    anne: +female +name
+    annie: +female +name
+    anson: +male +name
+    arsalan: +male +name
+    art: +male +name
+    arthur: +male +name
+    audrey: +female +name
+    ayala: +female +name
+    baba: +female +name
+    barbara: +female +name
+    barnes: +lastname +name
+    barry: +male +name
+    bates: +lastname +name
+    becky: +female +name
+    belinda: +female +name
+    ben: +male +name
+    bertram: +male +lastname +name
+    beth: +female +name
+    betsy: +female +name
+    bettina: +female +name
+    betty: +female +name
+    bill: +male +name
+    bingley: +lastname +name
+    blackwell: +lastname +name
+    bloomingdale: +lastname +name
+    bobbie: +female +name
+    bourg: +lastname +name
+    brad: +male +name
+    bradley: +male +name
+    brandon: +male +name
+    brenda: +female +name
+    brian: +male +name
+    briana: +female +name
+    bruce: +male +name
+    buffy: +female +name
+    caesar: +male +name
+    carl: +male +name
+    carla: +female +name
+    carlos: +male +name
+    carmen: +female +name
+    carolyn: +female +name
+    carrie: +female +name
+    cathy: +female +name
+    catriona: +female +name
+    cedric: +male +name
+    celia: +female +name
+    chelswu: +female +name
+    cheney: +lastname +name
+    cher: +female +name
+    cheryl: +female +name
+    chris: +male +name
+    christina: +female +name
+    christine: +female +name
+    churchill: +lastname +name
+    ciaran: +female +name
+    claus: +lastname +male +name
+    cohen: +lastname +name
+    colson: +lastname +name
+    connie: +female +name
+    cornelia: +female +name
+    cornelius: +male +name
+    crawford: +lastname +name
+    curtis: +male +name
+    cynthia: +female +name
+    d'arcy: +lastname +name
+    damon: +male +name
+    dan: +male +name
+    dana: +female +name
+    daniel: +male +name
+    danny: +male +name
+    dante: +male +name
+    darin: +male +name
+    dashwood: +lastname +name
+    dave: +male +name
+    david: +male +name
+    deirdre: +female +name
+    dennis: +male +name
+    dexter: +male +name
+    diana: +female +name
+    dina: +female +name
+    donny: +male +name
+    dorothy: +female +name
+    dot: +female +name
+    doug: +male +name
+    edmund: +male +name
+    edna: +female +name
+    eleanor: +female +name
+    eliza: +female +name
+    elizabeth: +female +name
+    ellen: +female +name
+    elliott: +male +name
+    elmer: +male +name
+    eloise: +female +name
+    elton: +lastname +name
+    emily: +female +name
+    emma: +female +name
+    enrico: +male +name
+    eric: +male +name
+    erica: +female +name
+    erich: +male +name
+    erik: +male +name
+    erika: +female +name
+    erin: +female +name
+    ernie: +male +name
+    ethel: +female +name
+    evan: +male +name
+    fabio: +male +name
+    fairfax: +lastname +name
+    faustina: +female +name
+    felix: +male +name
+    ferdinand: +male +name
+    feynman: +male +name
+    fido: +male +name
+    fiona: +female +name
+    fitial: +male +name
+    flo: +female +name
+    flora: +female +name
+    florence: +female +name
+    floyd: +male +name
+    frances: +female +name
+    francis: +male +name
+    fraser: +male +name
+    fred: +male +name
+    frieda: +female +name
+    gabrielle: +female +name
+    gary: +male +name
+    george: +male +name
+    georgina: +female +name
+    gerry: +male +female +name
+    gillian: +female +name
+    gloria: +female +name
+    goldstein: +lastname +name
+    gomez: +lastname +name
+    gordie: +male +name
+    gordon: +male +name
+    greg: +male +name
+    gus: +male +name
+    gwen: +female +name
+    haim: +male +name
+    hanna: +female +name
+    harold: +male +name
+    harriet: +female +name
+    harry: +male +name
+    hattie: +female +name
+    heidi: +female +name
+    hein: +lastname +name
+    helen: +female +name
+    henri: +male +name
+    henry: +male +name
+    hermione: +female +name
+    heydrich: +lastname +name
+    hilary: +male +female +name
+    hilda: +female +name
+    igor: +male +name
+    imogen: +female +name
+    irma: +female +name
+    isabel: +female +name
+    ivan: +male +name
+    jack: +male +name
+    jackie: +female +name
+    jaime: +male +name
+    jake: +male +name
+    jane: +female +name
+    janet: +female +name
+    jason: +male +name
+    jasper: +male +name
+    jean: +male +female +name
+    jeane: +female +name
+    jeeves: +lastname +name
+    jeff: +male +name
+    jen: +female +name
+    jennie: +female +name
+    jennifer: +female +name
+    jenny: +female +name
+    jeremy: +male +name
+    jerry: +male +name
+    jessica: +female +name
+    jila: +female +name
+    jill: +female +name
+    jim: +male +name
+    joan: +female +name
+    joao: +male +name
+    joe: +male +name
+    johann: +male +name
+    john: +male +name
+    johnny: +male +name
+    jones: +lastname +sg +name
+    joneses: +lastname +pl +name
+    jorge: +male +name
+    jose: +male +name
+    josh: +male +name
+    joshua: +male +name
+    josé: +male +name
+    juan: +male +name
+    judy: +female +name
+    julia: +female +name
+    julie: +female +name
+    juliet: +female +name
+    julius: +male +name
+    justin: +male +name
+    kanaka: +male +female +name
+    kanake: +male +female +name
+    kane: +lastname +name
+    kariuki: +male +name
+    karl: +male +name
+    karla: +female +name
+    kate: +female +name
+    katherine: +female +name
+    kathleen: +female +name
+    kathy: +female +name
+    keiko: +female +name
+    ken: +male +name
+    kenji: +male +name
+    kenny: +male +name
+    kerry: +lastname +name
+    kevin: +male +name
+    kim: +female +male +name
+    kimberly: +female +name
+    kimea: +male +female +name
+    knightley: +lastname +name
+    lacey: +lastname +name
+    larry: +male +name
+    laurel: +male +female +name
+    leah: +female +name
+    lee: +male +name
+    leigh: +female +name
+    lenny: +male +name
+    leona: +female +name
+    leslie: +female +name
+    lillie: +female +name
+    lilly: +female +name
+    lily: +female +name
+    linda: +female +name
+    lisa: +female +name
+    lito: +male +name
+    lopez: +lastname +name
+    lora: +female +name
+    lorenzo: +male +name
+    lou: +male +female +name
+    louis: +male +name
+    louisa: +female +name
+    louise: +female +name
+    lucie: +male +name
+    lucille: +female +name
+    lucy: +female +name
+    lukas: +male +name
+    lynn: +female +name
+    madeleine: +female +name
+    maggie: +female +name
+    maisie: +female +name
+    makiko: +female +name
+    manami: +male +female +name
+    manuel: +male +name
+    marcia: +female +name
+    marco: +male +name
+    marg: +female +name
+    margaret: +female +name
+    marge: +female +name
+    maria: +female +name
+    marianne: +female +name
+    marie: +female +name
+    marilyn: +female +name
+    marion: +male +name
+    mark: +male +name
+    marlene: +female +name
+    martha: +female +name
+    martin: +male +name
+    martina: +female +name
+    mary: +female +name
+    matt: +male +name
+    matthew: +male +name
+    maureen: +female +name
+    maurice: +male +name
+    max: +male +name
+    maxime: +female +name
+    maxine: +female +name
+    medea: +female +name
+    megan: +female +name
+    melanie: +female +name
+    mele: +female +name
+    melvin: +male +name
+    mercedes: +female +name
+    merv: +male +name
+    meryl: +female +name
+    michael: +male +name
+    michelle: +female +name
+    midori: +female +name
+    mika: +female +name
+    mike: +male +name
+    milena: +female +name
+    millie: +female +name
+    mingxing: +male +name
+    minjoon: +male +name
+    minsoo: +male +name
+    mira: +female +name
+    miriam: +female +name
+    misha: +male +name
+    mona: +female +name
+    monica: +female +name
+    mort: +male +name
+    morty: +male +name
+    moya: +male +name
+    musgrave: +lastname +name
+    myra: +female +name
+    myrna: +female +name
+    myron: +male +name
+    nadya: +female +name
+    nate: +male +name
+    nathan: +male +name
+    ngugi: +male +name
+    nora: +female +name
+    norvin: +male +name
+    ohoso: +name
+    olivia: +female +name
+    onegin: +lastname +name
+    otto: +male +name
+    owen: +male +name
+    pamela: +female +name
+    pat: +female +male +name
+    paul: +male +name
+    paula: +female +name
+    pearl: +female +name
+    pelé: +male +name
+    pete: +male +name
+    peter: +male  +name
+    philippa: +female +name
+    phillip: +male +name
+    phineas: +male +name
+    phyllis: +female +name
+    pierre: +male +name
+    pietro: +male +name
+    priscilla: +female +name
+    pugsley: +male +name
+    raffi: +male +name
+    raiza: +name
+    ram: +male +name
+    # ran: +female +name
+    rasoa: +name
+    reg: +male +name
+    reggie: +male +name
+    richard: +male +name
+    rina: +female +name
+    rita: +female +name
+    robert: +male +name
+    rodney: +male +name
+    roger: +male +name
+    ron: +male +name
+    ronald: +male +name
+    ronnie: +male +name
+    rooke: +lastname +name
+    rory: +male +name
+    rose: +female +name
+    rosemary: +female +name
+    rosie: +female +name
+    rudy: +male +name
+    ryan: +male +name
+    sachiko: +female +name
+    sally: +female +name
+    sam: +male +name
+    samantha: +female +name
+    sammy: +male +name
+    sandra: +female +name
+    sandy: +female +name
+    sara: +female +name
+    sarah: +female +name
+    sasha: +male +name
+    scarlet: +female +name
+    seamus: +male +name
+    sean: +male +name
+    selena: +female +name
+    selina: +female +name
+    sharon: +female +name
+    sheila: +female +name
+    shelly: +female +name
+    shirley: +female +name
+    simmons: +lastname +name
+    siobhan: +female +name
+    sita: +female +name
+    smith: +lastname +sg +name
+    stacy: +female +name
+    stalin: +lastname +name
+    stephan: +male +name
+    steve: +male +name
+    strang: +male  +name
+    stuart: +male +name
+    sue: +female +name
+    susan: +female +name
+    susanne: +female +name
+    susi: +female +name
+    susie: +female +name
+    suzie: +female +name
+    swansong: +lastname +name
+    sylvia: +female +name
+    tamara: +female +name
+    tami: +female +name
+    taroo: +male +name
+    tasha: +female +name
+    tatiana: +female +name
+    terry: +female +male +name
+    tessa: +female +name
+    toni: +female +name
+    tony: +male +name
+    traci: +female +name
+    tracy: +female +male +name
+    vera: +female +name
+    vivian: +female +name
+    vivien: +female +name
+    waldo: +male +name
+    walter: +male +name
+    wanda: +female +name
+    waraka: +male +name
+    wendy: +female +name
+    wentworth: +lastname +name
+    wickham: +lastname +name
+    wildwood: +lastname +name
+    willa: +female +name
+    william: +male +name
+    willoughby: +lastname +name
+    willy: +male +name
+    wilma: +female +name
+    winifred: +female +name
+    winston: +male +name
+    woodhouse: +lastname +name
+    xander: +male +name
+    xavea: +name
+    yassin: +male +name
+    yates: +lastname +name
+    yeltsin: +lastname +name
+    yoonjin: +male +name
+    yuko: +female +name
+    zeke: +male +name
+    zhangsan: +name
+    zimmerman: +lastname +name
+    e.: +male +name
+
+    sos: sos
+    eos: eos
+
+decoder_lexicon:
+    GRAMMATICAL: -weird +nom
+    UNGRAMMATICAL: +weird +acc
+    sos: sos
+    eos: eos
+
+architecture:
+    encoder:
+        - self_attention0
+    decoder:
+        - decoder_sa0
+        - decoder_eda0
+        - decoder_ff0
+
+decoder_sa0: # 'decoder'
+    type: HandMultiheadSelfAttention
+    heads:
+        - docstring: catch GRAMMATICAL and map to eos
+
+          querymat: 10nom>xa 10sos>xb
+
+          keymat: 10nom>xa 10sos>xb
+
+          valuemat: 100nom>eos -sos>eos
+
+        - docstring: catch UNGRAMMATICAL and map to eos
+
+          querymat: 10acc>xa 10sos>xb
+
+          keymat: 10acc>xa 10sos>xb
+
+          valuemat: 100acc>eos -sos>eos
+
+decoder_eda0: # 'decoder'
+    type: HandMultiheadEncdecAttention
+    heads:
+        - docstring: find weird anywhere in the input and map to
+                     UNGRAMMATICAL
+
+          querymat: sos>xa
+
+          keymat: weird>xa
+
+          valuemat: weird>weird
+
+decoder_ff0: # 'decoder'
+    type: HandFeedForward
+    docstring: map lack of weird to GRAMMATICAL, also suppress sos
+    mat1: weird>weird
+    bias1: -10sos
+    mat2: 2weird>weird
+    bias2: -weird -10sos
+
+self_attention0: # syntax layer 0 self-attention
+    type: HandMultiheadSelfAttention
+    heads:
+        - docstring: Modification layer. Specifically pairs of the
+                     form Q K, where Q comes before K and Q modifies
+                     K. Q must be an adjective or an adverb to use
+                     this rule.
+
+          querypos: +1
+          keypos: 0
+
+          querymat: adjective>xa adverb>xb adverb>xc adverb>xd verb>xe
+                    noun>xe det>xe filler>xe pro>xe
+
+          keymat: noun>xa verb>xb adjective>xc adverb>xd filler>xe
+
+          valuemat:
+              noun>licensed verb>licensed adverb>licensed
+              adjective>licensed
+
+#     H2det:
+#         docstring: Q K, where K modifies Q
+#         params:
+#             normaxis: 0 # snipermode
+
+#         pos:
+#             K: +1
+#             Q: 0
+
+#         x1: # noun modifies determiner: the dog
+#             Q: det
+#             K: noun
+
+#         x2: # everything else hits filler
+#             Q: verb noun filler pro
+#             K: filler filler filler
+
+#         int: eyenoun sg>sg pl>pl cognate>cognate
+
+#     H2:
+#         docstring: Q K, where K modifies Q
+#         params:
+#             normaxis: 0 # snipermode
+
+#         pos:
+#             K: +1
+#             Q: 0
+
+#         x2: # adverb modifies verb: write quickly
+#             Q: verb
+#             K: adverb
+
+#         x3: # nominal phrase modifies preposition: in Paris
+#             Q: prep
+#             K: det pro
+
+#         x5: # everything else hits filler
+#             K: filler
+#             Q: filler adjective noun adverb det pro
+
+#         int: eyenoun eyeadv
+
+#     H2a:
+#         docstring: K Q, where Q modifies K
+#         params:
+#             normaxis: 0 # snipermode
+
+#         pos:
+#             K: 0
+#             Q: +1
+
+#         x1: # noun modifies determiner: K[the] Q[dog]
+#             K: det
+#             Q: noun
+
+#         x2: # adverb modifies verb: K[write] Q[quickly]
+#             K: verb
+#             Q: adverb
+
+#         x3: # nominal phrase modifies preposition: K[in] Q[Paris]
+#             K: prep
+#             Q: det
+
+#         x5: # everything else hits filler
+#             Q: filler period noun adjective adverb
+#             K: filler
+
+#         int: det>licensed verb>licensed adverb>licensed
+#              adjective>licensed prep>licensed det>-det
+
+#     Hinfinitive:
+#         docstring: Q[to] boldly K[go]
+#         pos:
+#             Q: 0
+#             K: +1
+
+#         x1:
+#             Q: to
+#             K: verb plain plain -3rdsg -preterite
+
+#         x2:
+#             K: filler
+#             Q: filler noun verb det pro adverb adjective
+
+#         int: verb>infinitive eyeverb
+
+#     Hinfinitiveanti:
+#         docstring: K[to] boldly Q[go]    
+#         params:
+#             future_mask: True
+
+#         pos:
+#             K: 0
+#             Q: +1
+
+#         x1:
+#             K: to
+#             Q: verb plain plain -3rdsg -preterite
+
+#         x2:
+#             K: filler
+#             Q: filler noun verb det pro adverb adjective
+
+#         int: to>-agentlack to>-experiencerlack to>licensed
+#              to>-agentposs
+
+#     H20:
+#         docstring: adverb(Q) must go after dirobject or before verb,
+#                    so mark the ones before the verb(K) now
+         
+#         params:
+#             past_mask: True
+
+#         pos:
+#             Q: 0
+#             K: +1
+
+#         x1:
+#             Q: adverb -noun -pro
+#             K: verb
+
+#         x5: # everything else hits filler
+#             K: filler
+#             Q: filler verb noun det pro adjective
+
+#         int: verb>preverb
+
+# FF0: # syntax layer 0 feed-forward
+#     docstring: Promote plurals and names to determiners since they
+#                don't need a determiner. Mark most classes as
+#                unlicensed until proven otherwise.
+
+#     det:
+#         x1: name | lastname
+#         x2: pl | massnoun
+
+#     sg:
+#         x1: name | lastname
+
+#     mat1: noun>noun pro>pro helper>helper det>det prep>prep neg>neg
+#           period>period neg>neg verb>verb
+
+#     mat2: noun>-licensed pro>-licensed helper>-licensed det>-licensed
+#           prep>-licensed neg>-licensed period>filler verb>-licensed
+
+#           period>filler
+
+# SA1: # syntax layer 1 self-attention
+#     H1:
+#         docstring: nominal phrases jockey for position
+#         params:
+#             future_mask: True
+
+#         pos:
+#             Q: 0
+#             K: +1
+
+#         x1:
+#             K: pro det
+#             Q: pro det
+
+#         x5: # everything else hits filler
+#             K: filler
+#             Q: filler verb noun adjective
+
+#         int: '' #pro>late det>late
+
+# FF1: '' # syntax layer 1 feed-forward
+
+# SA2: # syntax layer 2 self-attention
+#     H1:
+#         docstring: dirobject wipes out themelacks
+
+#         params:
+#             past_mask: True
+
+#         pos:
+#             Q: 0
+#             K: +1
+
+#         x1:
+#             K: pro det infinitive acc -nom -subject -agent -experiencer
+#             Q: themelack themeposs
+
+#         x5: # everything else hits filler
+#             K: filler
+#             Q: filler noun adjective
+
+#         int: pro>-themelack det>-themelack infinitive>-themelack
+#              pro>-themeposs det>-themeposs infinitive>-themeposs
+
+#     H2:
+#         docstring: dirobject wipes out perceptlacks
+#         params:
+#             past_mask: True
+
+#         pos:
+#             Q: 0
+#             K: +1
+
+#         x1:
+#             K: pro det acc -nom -subject -agent -experiencer
+#             Q: perceptlack perceptposs
+
+#         x5: # everything else hits filler
+#             K: filler
+#             Q: filler verb noun adjective
+
+#         int: pro>-perceptlack det>-perceptlack
+#              pro>-perceptposs det>-perceptposs
+
+#     H3:
+#         docstring: dirobject wipes out patientlacks
+#         params:
+#             past_mask: True
+
+#         pos:
+#             Q: 0
+#             K: +1
+
+#         x1:
+#             K: pro det acc -nom -subject -agent -experiencer
+#             Q: patientlack patientposs
+
+#         x5: # everything else hits filler
+#             K: filler
+#             Q: filler verb noun adjective
+
+#         int: pro>-patientlack det>-patientlack
+#              pro>-patientposs det>-patientposs
+
+#     H4:
+#         docstring: dirobject wipes out complementlacks
+#         params:
+#             past_mask: True
+
+#         pos:
+#             Q: 0
+#             K: +1
+
+#         x1:
+#             K: pro det acc -nom -subject -agent -experiencer
+#             Q: complementlack complementposs
+
+#         x5: # everything else hits filler
+#             K: filler
+#             Q: filler noun adjective
+
+#         int: pro>-complementlack det>-complementlack
+#              pro>-complementposs det>-complementposs
+
+#     Hprep:
+#         docstring: pp(Q) attaches to the verb(K)
+#         pos:
+#             Q: +1
+#             K: 0
+
+#         x1:
+#             Q: prep -verb -pro -det -infinitive -infinitive
+#             K: verb
+
+#         x5: # everything else hits filler
+#             K: filler
+#             Q: filler verb noun adjective infinitive
+
+#         int: verb>licensed
+
+#     Hprepanti:
+#         docstring: pp(K) attaches to the verb(Q)
+#         pos:
+#             K: +1
+#             Q: 0
+
+#         x1:
+#             K: prep -infinitive -infinitive
+#             Q: verb
+
+#         x5: # everything else hits filler
+#             K: filler
+#             Q: filler verb noun adjective
+
+#         int: eyeprep
+
+
+#     HmarkDO:
+#         docstring: mark the dirobject as
+#                    theme/percept/patient/complement, and license
+
+#         params:
+#             normaxis: 0
+#             future_mask: True
+
+#         pos:
+#             K: 0
+#             Q: +2
+
+#         x1:
+#             K: verb
+#             Q: pro det infinitive acc acc acc -nom -nom -nom -gen -gen -gen
+
+#         x2:
+#             K: verb
+#             Q: late
+
+#         x3:
+#             K: speechposs
+#             Q: -fruit -fruit -fruit -fruit
+
+#         x5: # everything else hits filler
+#             K: filler
+#             Q: filler verb noun adjective
+
+#         int: themelack>theme perceptlack>percept themeposs>theme
+#              perceptposs>percept patientposs>patient
+#              patientlack>patient complementlack>complement
+#              themelack>licensed perceptlack>licensed themeposs>licensed
+#              perceptposs>licensed patientposs>licensed
+#              patientlack>licensed complementlack>licensed
+
+#              speechlack>dirobject speechposs>dirobject
+#              patientlack>dirobject patientposs>dirobject
+#              themelack>dirobject themeposs>dirobject
+#              perceptlack>dirobject perceptposs>dirobject
+#              complementlack>dirobject complementposs>dirobject
+
+#     HmarkPRED:
+#         docstring: mark the predicate as such, and license
+
+#         params:
+#             normaxis: 0
+#             future_mask: True
+
+#         pos:
+#             K: 0
+#             Q: +1
+
+#         x1:
+#             K: verb
+#             Q: pro det infinitive acc -nom -nom -nom
+
+#         x5: # everything else hits filler
+#             K: filler
+#             Q: filler verb noun adjective
+
+#         int: copula>predicate copula>licensed
+
+#     Hvhelp:
+#         docstring: Q K, where Q is a helper verb supporting main verb K
+#         params:
+#             normaxis: 0 # snipermode
+
+#         pos:
+#             K: +1
+#             Q: 0
+
+#         x1:
+#             K: verb
+#             Q: helper -pro -det -noun -adjective -adverb
+
+#         x2:
+#             K: modal modal modal modal
+#             Q: -modal -modal -modal -modal
+
+#         x5: # everything else hits filler
+#             K: filler filler filler
+#             Q: filler pro det verb noun adjective
+
+#         int: verb>verb agentlack>agentlack
+#              themelack>themelack experiencerlack>experiencerlack
+#              perceptlack>perceptlack complementlack>complementlack
+#              goallack>goallack benefactivelack>benefactivelack
+#              itlack>itlack patientlack>patientlack
+#              eyeverb
+
+#     Hvantihelp:
+#         docstring: K Q, where K is a helper verb supporting main verb
+#                    Q
+
+#         params:
+#             normaxis: 0 # snipermode
+
+#         pos:
+#             Q: +1
+#             K: 0
+
+#         x1:
+#             Q: verb
+#             K: helper
+
+#         x2:
+#             K: modal modal modal modal
+#             Q: -modal -modal -modal -modal
+
+#         x5: # everything else hits filler
+#             K: filler
+#             Q: filler noun adjective
+
+#         int: helper>licensed helper>-verb helper>-agentlack
+#              helper>-experiencerlack helper>-agentposs
+#              helper>-experiencerposs
+
+# FF2: # syntax layer 2 feed-forward
+#     # zero out negative shit
+#     mat1: agentlack>-agentlack agentposs>-agentposs
+#           experiencerlack>-experiencerlack
+#           experiencerposs>-experiencerposs
+
+#     mat2: agentlack>agentlack agentposs>agentposs
+#           experiencerlack>experiencerlack
+#           experiencerposs>experiencerposs
+
+# SA3: # syntax layer 3 self-attention
+#     H0:
+#         docstring: expletive subject wipes out itlack
+#         pos:
+#             Q: +1 +2
+#             K: 0
+
+#         x1:
+#             K: expletive
+#             Q: itlack
+
+#         x5: # everything else hits filler
+#             K: filler
+#             Q: filler noun adjective
+
+#         int: expletive>-itlack expletive>licensed
+
+# #SA3
+#     H1:
+#         docstring: subject wipes out agentlacks
+#         params:
+#             normaxis: 0 # snipermode
+
+#         pos:
+#             Q: +1
+#             K: 0
+
+#         x1:
+#             K: pro det -acc -acc -acc -acc nom -reflexive -reflexive
+#             Q: agentlack agentposs
+
+#         x2:
+#             K: sg -pl massnoun 3rd -1st -1st -1st -2nd -2nd -2nd
+#             Q: 3rdsg
+
+#         x3:
+#             K: 1st 2nd pl -sg
+#             Q: plain
+
+#         int: pro>-agentlack det>-agentlack pro>-agentposs
+#              det>-agentposs
+#              pro>licensed det>licensed
+
+# #SA3
+#     H2:
+#         docstring: subject wipes out experiencerlacks
+#         params:
+#             normaxis: 0 # snipermode
+
+#         pos:
+#             Q: +1
+#             K: 0
+
+#         x1:
+#             K: pro det -acc -acc -acc -acc nom -gen -gen -reflexive
+#             Q: experiencerlack experiencerposs
+
+#         x2:
+#             K: sg massnoun 3rd -1st -1st -1st -2nd -2nd -2nd nom -gen -acc
+#             Q: 3rdsg
+
+#         x3:
+#             K: 1st 2nd pl -sg nom -gen -gen -gen -acc
+#             Q: plain
+
+#         x5: # everything else hits filler
+#             K: filler
+#             Q: filler noun adjective
+
+#         int: pro>-experiencerlack det>-experiencerlack
+#              pro>-experiencerposs det>-experiencerposs
+#              pro>licensed det>licensed
+
+# #SA3
+#     Hsubj:
+#         docstring: mark the subject as agent/experiencer
+#         params:
+#             normaxis: 0
+#             past_mask: True
+
+#         pos:
+#             K: +1
+#             Q: 0
+
+#         x1:
+#             K: agentlack experiencerlack itlack agentposs experiencerposs
+#             Q: pro det -gen -gen -gen -gen -gen -acc -acc -acc -acc
+#                -acc nom -late -cognate -cognate -cognate
+#                -patient -percept -theme
+#                -patient -percept -theme
+#                -patient -percept -theme
+#                -patient -percept -theme
+#                -patient -percept -theme
+#                -patient -percept -theme
+#                -patient -percept -theme
+
+#         x2:
+#             Q: sg 3rd -1st -1st -1st -2nd -2nd -2nd -late nom -gen -gen
+#             K: 3rdsg
+
+#         x3:
+#             Q: 1st  2nd pl -sg -late nom -gen -gen
+#             K: plain
+
+#         x5: # everything else hits filler
+#             K: filler
+#             Q: filler noun adjective
+
+#         int: agentlack>agent agentlack>licensed agentlack>subject
+#              agentposs>agent agentposs>licensed agentposs>subject
+#              copula>licensed copula>subject
+#              experiencerlack>experiencer experiencerlack>licensed
+#              experiencerlack>subject experiencerposs>experiencer
+#              experiencerposs>licensed experiencerposs>subject
+#              itlack>licensed itlack>subject
+
+# #SA3
+#     H20:
+#         docstring: adverb(Q) must go after dirobject(K) or before
+#                    verb, so mark it as weird if it's not preverb but
+#                    is before dirobject
+
+#         params:
+#             past_mask: True
+
+#         pos:
+#             Q: 0
+#             K: +1
+
+#         x1:
+#             Q: adverb -preverb -preverb
+#             K: dirobject
+
+#         x5: # everything else hits filler
+#             K: filler
+#             Q: filler verb noun adjective
+
+#         int: dirobject>weird
+
+# FF3: # syntax layer 3 feed-forward
+#     imperative:
+#         x30: agentlack | experiencerlack
+#         x29: -preterite | -3rdsg
+
+#     mat1: reflexive>reflexive
+
+#     mat2: reflexive>-reflic
+
+# SA4: # syntax layer 4 self-attention
+#     H3:
+#         docstring: (some) pronouns coreference
+#         pos:
+#             K: 0
+#             Q: +2
+#         x2:
+#             K: 1st
+#             Q: 1st
+#         x3:
+#             K: 2nd
+#             Q: 2nd
+
+#         x5: # everything else hits filler
+#             K: filler
+#             Q: filler verb noun adjective
+
+#         int: pro>reflexivelack
+
+#     H10:
+#         docstring: check agreement between subject(K) and predicate(Q)
+#         pos:
+#             Q: 0
+#             K: +2
+
+#         x1:
+#             Q: predicate
+#             K: subject
+
+#         x5: # everything else hits filler
+#             K: filler
+#             Q: filler verb adjective
+
+#         int: sg>sgcheck pl>plcheck
+
+#     H11:
+#         docstring: check that we do not have a (non-2nd) subject(Q)
+#                    and an imperative(K)
+
+#         pos:
+#             Q: 0
+#             K: +2
+
+#         x1:
+#             K: imperative
+#             Q: subject -2nd -2nd -2nd -2nd
+
+#         x5: # everything else hits filler
+#             K: filler
+#             Q: filler verb noun adjective
+
+#         int: imperative>weird
+
+#     Homega:
+#         docstring: reflexive Q demands an antecedent K
+#         params:
+#             future_mask: True
+
+#         pos:
+#             K: 0
+#             Q: +2
+
+#         x1:
+#             K: pro det
+#             Q: reflexive
+
+#         x2:
+#             K: 3rd
+#             Q: 3rd
+
+#         x3:
+#             K: 2nd
+#             Q: 2nd
+
+#         x4:
+#             K: 1st
+#             Q: 1st
+
+#         x5: # everything else hits filler
+#             K: filler
+#             Q: filler verb noun adjective
+
+#         int: pro>reflic det>reflic
+
+#     Homegaimp:
+#         docstring: reflexive Q demands an antecedent K, which is
+#                    understood 'you' in imperative sentence
+
+#         params:
+#             future_mask: True
+
+#         pos:
+#             K: 0
+#             Q: +1
+
+#         x1:
+#             K: imperative
+#             Q: 2nd
+
+#         x5: # everything else hits filler
+#             K: filler
+#             Q: filler verb noun adjective
+
+#         int: imperative>reflic
+
+# FF4: # syntax layer 4 feed-forward
+#     checked:
+#         x1: sgcheck & sg
+#         x2: plcheck & pl
+
+#     mat1: imperative>imperative
+
+#     mat2: imperative>licensed
+
+#     bias2: -checked
+
+# SA5: ''
+
+# FF5: # syntax layer 5 feed-forward
+#     weird:
+#         x1: themelack | complementlack | patientlack | itlack
+#         x2: theme & agent
+#         x3: agent & patient
+#         x4: -licensed & prep
+#         x5: -licensed & noun
+#         x6: -licensed & pro
+#         x7: -licensed & helper
+#         x8: -licensed & det
+#         x9: acc & subject
+#         x10: reflexive & -reflic
+#         x11: -checked & sgcheck
+#         x12: -checked & plcheck
+#         x13: -licensed & neg
+#         x14: nplack & prep
+
+#         x15: reflexivelack & 1st
+#         x16: reflexivelack & 2nd
+
+#         x17: -licensed & verb
+
+examples:
+    - she will eat a very small red apple .
+`,
+               id: "figure-grammaticality",
+               topLevel: true,
+               document: document,
+               container: initTagGrammaticality});
+      });
+
+    </script>
+
+
+
+    <a class="marker" href="#section-6" id="section-6"><span>6</span></a>
+    <h2>Seq2Seq Transformer for Translation</h2>
+
+    <p>In this section, we show a Transformer programmed to translate
+      English to French. This network is solving a toy version of the
+      problem (it can handle 300 or so sentences); the author has very
+      little knowledge of French, unfortunately, which makes writing
+      the decoder difficult.
+    </p>
+
+    <d-figure id="figure-translation" style="border: 1px solid black">
+      <svg id="figure-translation-svg" width="500" height="200" />
+    </d-figure>
+    <script>
+      const figureTranslation = document.querySelector(
+          "d-figure#figure-translation");
+      const initTagTranslation = document.createElement("div");
+      figureTranslation.appendChild(initTagTranslation);
+
+      figureTranslation.addEventListener("ready", function () {
+          const initTagTranslation = figureTranslation.querySelector("div");
+          let layer = new HandTransformer(
+              {program: `# English-to-French (Toy) Translation Transformer
+
+semes: subject mainverb dirobject indirobject first second third pro
+       noun verb adjective article male female shirt coat donut steak
+       salad apple human cat dog red green blue wearable edible eating
+       wearing weird filler sos eos elided helper xa xb xc xd xe xf xg
+       xh xi xj xk xl
+
+encoder_lexicon:
+    sos: +sos
+    eos: +eos
+    I: +noun +pro +first
+    he: +male +noun +pro +third
+    she: +female +noun +pro +third
+    ate: +eating +verb
+    wore: +wearing +verb
+    a: +article
+    an: +article
+    edible: +edible +adjective
+    wearable: +wearable +adjective
+    red: +red +adjective
+    green: +green +adjective
+    blue: +blue +adjective
+    shirt: +wearable +shirt +noun
+    coat: +wearable +coat +noun
+    apple: +edible +apple +noun
+    donut: +edible +donut +noun
+    steak: +edible +steak +noun
+    salad: +edible +salad +noun
+    human: +human +noun
+    cat: +cat +noun
+    dog: +dog +noun
+
+decoder_lexicon:
+    sos: +sos
+    eos: +eos
+    'je': +subject +first -elided +pro
+    'j\`': +subject +first +elided +pro
+    'il': +subject +male +third +pro
+    'elle': +subject +female +third +pro
+    'ai': +verb +helper +first
+    'a': +verb +helper +third
+    'mangé': +eating +verb +first +third
+    'portais': +wearing +verb +first
+    'portait': +wearing +verb +third
+    'un': +article +coat +dog +human +donut +steak
+    'une': +article +shirt +cat +apple +salad
+    'comestible': +edible +adjective
+    'portable': +wearable +adjective
+    'rouge': +red +adjective
+    'vert': +green +adjective
+    'bleu': +blue +adjective
+    'chemise': +shirt +noun
+    'manteau': +coat +noun
+    'pomme': +apple +noun
+    'beignet': +donut +noun
+    'steak': +steak +noun
+    'salade': +salad +noun
+    'humain': +human +noun
+    'chat': +cat +noun
+    'chien': +dog +noun
+
+
+architecture:
+    encoder:
+        - self_attention1
+    decoder:
+        - self_attention2
+        - encdec_attention1
+        - feedforward2
+
+self_attention1:
+    type: HandMultiheadSelfAttention
+    heads:
+        - docstring: modification
+          querypos: +1
+          keypos: 0
+          querymat: adjective>xa
+          keymat: noun>xa -verb>xa
+          valuemat: red>red green>green blue>blue edible>edible
+                    wearable>wearable
+        - docstring: role identification layer (kind of cheating here)
+          querymat: pro>xa noun>xb verb>xc
+          keymat: pro>xa noun>xb verb>xc
+          valuemat: pro>subject noun>dirobject verb>mainverb
+
+self_attention2:
+    type: HandMultiheadSelfAttention
+    heads:
+        - docstring: erase the embedding of the input word and shift
+                     towards next word
+
+          querymat: sos>sos eos>eos first>first second>second
+                    third>third pro>pro noun>noun verb>verb
+                    adjective>adjective article>article male>male
+                    female>female shirt>shirt coat>coat donut>donut
+                    steak>steak salad>salad apple>apple human>human
+                    cat>cat dog>dog red>red green>green blue>blue
+                    wearable>wearable edible>edible eating>eating
+                    wearing>wearing
+
+          keymat: sos>sos eos>eos first>first second>second
+                  third>third pro>pro noun>noun verb>verb
+                  adjective>adjective article>article male>male
+                  female>female shirt>shirt coat>coat donut>donut
+                  steak>steak salad>salad apple>apple human>human
+                  cat>cat dog>dog red>red green>green blue>blue
+                  wearable>wearable edible>edible eating>eating
+                  wearing>wearing
+
+          valuemat: sos>subject pro>verb pro>helper -pro>adjective
+                    2helper>verb 3helper>eating verb>article article>noun
+                    noun>adjective 2adjective>eos -noun>verb -2sos>sos
+                    -2eos>eos -2first>first -2second>second
+                    -2third>third -20pro>pro -20noun>noun
+                    -20helper>helper -20adjective>adjective
+                    -2article>article -2male>male -2female>female
+                    -2shirt>shirt -2coat>coat -2donut>donut
+                    -2steak>steak -2salad>salad -2apple>apple
+                    -2human>human -2cat>cat -2dog>dog -2red>red
+                    -2green>green -2blue>blue -2wearable>wearable
+                    -2edible>edible -20eating>eating -20wearing>wearing
+                    -2subject>subject 
+
+encdec_attention1:
+    type: HandMultiheadEncdecAttention
+    heads:
+        - docstring: most stuff
+          querymat: subject>xa verb>xb dirobject>xc noun>xc adjective>xd
+          keymat: subject>xa verb>xb dirobject>xc noun>xc adjective>xd
+          valuemat: first>first second>second third>third pro>pro
+                    noun>noun verb>verb adjective>adjective
+                    article>article male>male female>female
+                    shirt>shirt coat>coat donut>donut steak>steak
+                    salad>salad apple>apple human>human cat>cat
+                    dog>dog red>red green>green blue>blue
+                    wearable>wearable edible>edible eating>eating
+                    wearing>wearing
+
+        - docstring: article gender
+          querymat: article>xa
+          keymat: dirobject>xa noun>xa
+          valuemat: shirt>shirt coat>coat human>human cat>cat dog>dog
+                    donut>donut salad>salad steak>steak apple>apple
+
+        - docstring: helper verb
+          querymat: verb>xa
+          keymat: verb>xa
+          valuemat: eating>helper -6wearing>helper
+
+        - docstring: which verb
+          querymat: helper>xa
+          keymat: pro>xa
+          valuemat: first>first third>third
+
+        - docstring: subject-verb agreement
+          querymat: verb>xa helper>xa
+          keymat: pro>xa
+          valuemat: first>first third>third
+
+        - docstring: whether to elide the e in je
+          querymat: subject>xa
+          keymat: verb>xa
+          valuemat: eating>elided -wearing>elided
+
+feedforward2:
+    type: HandFeedForward
+    docstring: honestly do not remember writing this one
+    mat1: adjective>xa -red>xa -blue>xa -green>xa -wearable>xa
+          -edible>xa edible>xb wearable>xc human>xb human>xc
+          article>article
+    bias1: -xb -xc
+    mat2: -article>verb -article>noun -article>pro
+          2article>article -2xb>pro -xa>adjective xa>eos
+    bias2: ''
+
+examples:
+    - he ate a blue apple
+    - he ate a dog
+    - he ate a green human
+    - he ate a steak
+    - he ate a wearable salad
+    - he ate an edible donut
+    - he wore a blue shirt
+    - he wore a blue steak
+    - he wore a green steak
+    - he wore a human
+    - he wore a wearable cat
+    - he wore an edible steak
+    - I ate a blue human
+    - I ate a red salad
+    - I ate a wearable donut
+    - I wore a blue human
+    - I wore a coat
+    - I wore a green donut
+    - I wore a red apple
+    - I wore a shirt
+    - I wore a wearable shirt
+    - I wore an edible shirt
+    - she ate a blue shirt
+    - she ate a green dog
+    - she ate a red dog
+    - she ate a wearable cat
+    - she ate an edible dog
+    - she wore a blue salad
+    - she wore a green salad
+    - she wore a steak
+    - she wore a wearable dog
+    - she wore an apple
+    - she wore an edible salad
+`,
+               id: "figure-translation",
+               topLevel: true,
+               document: document,
+               container: initTagTranslation});
+      });
+
+    </script>
+
+
+
+  </d-article>
+
+  <d-appendix>
+
+    <h3>Reviewers</h3>
+    <p>Some text with links describing who reviewed the article.</p>
+
+    <d-bibliography src="bibliography.bib"></d-bibliography>
+  </d-appendix>
+
+  <distill-footer></distill-footer>
+
+</body>
